@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/", "destination": "/memzap.html" }
+  ],
+  "functions": {
+    "api/*.js": { "maxDuration": 60 }
+  }
+}

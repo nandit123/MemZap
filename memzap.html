@@ -508,7 +508,7 @@ footer b{color:var(--mint)}
   <div class="bridge-bar">
     <div class="bb-left"><span class="bb-dot connecting" id="bbDot"></span><span id="bbStatus">Connecting to your bridge…</span></div>
     <div class="bb-right">
-      <input id="bridgeUrl" value="http://localhost:8787" spellcheck="false" onkeydown="if(event.key==='Enter')connectBridge()">
+      <input id="bridgeUrl" value="" spellcheck="false" onkeydown="if(event.key==='Enter')connectBridge()">
       <button class="btn btn-ghost btn-sm" onclick="connectBridge()">Reconnect</button>
     </div>
   </div>
@@ -801,7 +801,10 @@ document.addEventListener('click',e=>{
 });
 
 /* ---------- memory dashboard (live bridge + demo fallback) ---------- */
-const BRIDGE={url:'http://localhost:8787',connected:false};
+const HOSTED=location.protocol==='http:'||location.protocol==='https:';
+const DEFAULT_BRIDGE_URL=HOSTED?location.origin+'/api':'http://localhost:8787';
+const BRIDGE={url:DEFAULT_BRIDGE_URL,connected:false};
+let liveLoadInFlight=false;
 const DEMO=[
   {text:"The $1MB token TGE is targeting August 2026, 1B fixed supply.",ch:"strategy",user:"nandit",ago:"2h",bid:"0x9f3a…c21e",url:""},
   {text:"Walrus is the hot-tier complement to Filecoin — position it as the durable substrate, not a memory product.",ch:"lighthouse",user:"nandit",ago:"5h",bid:"0x71b8…0d4a",url:""},
@@ -813,7 +816,7 @@ const DEMO=[
 let MEM=DEMO.slice();
 
 async function connectBridge(){
-  BRIDGE.url=(document.getElementById('bridgeUrl').value||'http://localhost:8787').trim().replace(/\/+$/,'');
+  BRIDGE.url=(document.getElementById('bridgeUrl').value||DEFAULT_BRIDGE_URL).trim().replace(/\/+$/,'');
   setBridge('connecting');
   try{
     const r=await fetch(BRIDGE.url+'/health',{cache:'no-store'});
@@ -842,13 +845,15 @@ function setBridge(state,h){
   }
 }
 async function loadLive(q){
-  if(!BRIDGE.connected)return;
+  if(!BRIDGE.connected||liveLoadInFlight)return;
+  liveLoadInFlight=true;
   try{
     const url=BRIDGE.url+(q?('/recall?q='+encodeURIComponent(q)):'/memories');
     const r=await fetch(url,{cache:'no-store'}); const j=await r.json();
     MEM=(j.results||[]).map(parseMem).filter(Boolean);
     render(q,{allHit:!!q});
   }catch(e){ BRIDGE.connected=false; setBridge('demo'); MEM=DEMO.slice(); render(); }
+  finally{liveLoadInFlight=false;}
 }
 function parseMem(item){
   if(item==null)return null;
@@ -983,6 +988,16 @@ setInterval(()=>{if(!document.getElementById('v-overview').classList.contains('s
 })();
 
 /* ---------- init ---------- */
+document.getElementById('bridgeUrl').value=DEFAULT_BRIDGE_URL;
+if(HOSTED){
+  document.querySelector('.bb-right').hidden=true;
+  document.querySelector('.addmem').hidden=true;
+  setInterval(()=>{
+    const memoryView=document.getElementById('v-memory').classList.contains('show');
+    const recalling=document.getElementById('recallInput').value.trim();
+    if(BRIDGE.connected&&memoryView&&!recalling)loadLive();
+  },15000);
+}
 syncAll();connectBridge();
 setTimeout(moveGlider,60);
 window.addEventListener('resize',moveGlider);

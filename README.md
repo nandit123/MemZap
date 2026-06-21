@@ -160,6 +160,22 @@ Open `memzap.html` as a local file in your browser. With the server running, the
 ## Network
  
 MemZap defaults to **Walrus testnet** (`--staging`). Testnet WAL/SUI are free from faucets. Note that testnet epochs are short (~1 day) and data may be wiped, so write fresh demo memories right before showing it. Switch to mainnet by changing the relayer URL in `.env` and the MCP flag to `--prod`.
+
+## Host the live dashboard on Vercel
+
+Vercel serves `memzap.html` and the read-only `/api/health`, `/api/memories`, and `/api/recall` functions. The Slack Socket Mode bot remains a long-running local process; both deployments point at the same Walrus account and namespace, so the hosted Shared memory view automatically checks for new Slack memories every 15 seconds.
+
+1. Import this repository into Vercel with the project root as the Root Directory and no framework preset.
+2. In **Project → Settings → Environment Variables**, add these values for Production (and Preview if needed):
+   - `MEMWAL_ACCOUNT_ID`
+   - `MEMWAL_KEY`
+   - `MEMWAL_RELAYER=https://relayer-staging.memory.walrus.xyz`
+   - `MEMWAL_NAMESPACE=slack`
+   - `SLACK_BOT_TOKEN` (needed only to show real Slack names and message permalinks)
+3. Deploy. The root URL rewrites to the dashboard, which automatically uses the same-origin Vercel API.
+4. During the demo, keep the Slack writer running locally with `node --env-file=.env server.mjs`.
+
+The hosted dashboard is intentionally read-only. Anyone who can open its URL can read the memories returned from this namespace, so use a dedicated hackathon account/namespace containing no private information. Vercel keeps environment variables server-side; never add the delegate key to `memzap.html` or any client-side variable.
  
 ## Security
  
