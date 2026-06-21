@@ -1,8 +1,4 @@
-<p align="center">
-  <img src="assets/memzap-logo.png" alt="MemZap logo" width="240">
-</p>
-
-# MemZap
+# <img src="assets/memzap-logo.png" alt="MemZap logo" width="42"> MemZap
  
 **Memory that travels with you across every app you use.**
  
