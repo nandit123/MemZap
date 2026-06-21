@@ -46,7 +46,7 @@ flowchart LR
  
 Two apps, one owned memory in the middle. Slack writes from one side, Claude reads from the other, and the dashboard reads the same space directly.
  
-- **Write path** — a Slack bot (`@slack/bolt`, Socket Mode) catches the mention and calls `memwal.remember()` through the Walrus Memory relayer.
+- **Write path** — a Slack bot (`@slack/bolt`, Socket Mode) catches the mention and calls `memwal.remember()` through the Walrus Memory relayer first; Slack names and permalinks are resolved afterward so metadata lookups never delay submission.
 - **Storage** — the relayer embeds the text, encrypts it with **Seal**, and stores the blob on **Walrus**. A **Sui** contract records ownership.
 - **Read path (Claude)** — the Walrus Memory **MCP server** gives Claude `memwal_recall` with zero custom code. Claude signs in through a browser flow, so no keys live in its config.
 - **Read path (dashboard)** — a small local API on the same server exposes recall to the web UI. The delegate key never leaves the server.
@@ -114,6 +114,9 @@ Install to your workspace, then collect:
 - **Bot token** (`xoxb-…`) — OAuth & Permissions
 - **App token** (`xapp-…`) — Basic Information → App-Level Tokens → generate with `connections:write`
 - **Signing secret** — Basic Information → App Credentials
+
+If MemZap was already installed before adding `channels:read` and `users:read`, reinstall it to the workspace so Slack grants the new scopes. Without them, Slack only gives MemZap the channel and user IDs to store.
+
 ### 3. Configure and run the bridge
  
 ```bash
@@ -149,10 +152,11 @@ Fully quit and reopen Claude. The first memory tool call opens a browser sign-in
 Open `memzap.html` as a local file in your browser. With the server running, the bridge bar turns green and the dashboard reads your real memories live.
  
 ## Try it
- 
+
 1. In Slack: `@memzap remember the TGE is targeting August 2026`
-2. In Claude: `what launch date did I save?`
-3. In the dashboard: see the entry, its Slack origin, and its Walrus blob ID.
+2. MemZap replies in a thread and reacts with ⏳ when Walrus accepts the job, then replaces it with ✓ after storage is confirmed. A ⚠ means confirmation timed out or failed; check the server log and dashboard before retrying.
+3. In Claude: `what launch date did I save?`
+4. In the dashboard: see the entry, its Slack origin, and its Walrus blob ID.
 ## Network
  
 MemZap defaults to **Walrus testnet** (`--staging`). Testnet WAL/SUI are free from faucets. Note that testnet epochs are short (~1 day) and data may be wiped, so write fresh demo memories right before showing it. Switch to mainnet by changing the relayer URL in `.env` and the MCP flag to `--prod`.

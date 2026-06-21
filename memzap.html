@@ -204,6 +204,10 @@ h3{font-family:var(--fd);font-weight:600;letter-spacing:-.01em;font-size:18px}
 .chip.user{background:rgba(91,200,232,.08);border-color:rgba(91,200,232,.2);color:var(--cyan)}
 .mem .mmeta{margin-left:auto;display:flex;align-items:center;gap:12px;color:var(--text-faint);font-family:var(--fm);font-size:11px}
 .mem .verified{display:inline-flex;align-items:center;gap:5px;color:var(--mint)}
+.blob-link{text-decoration:none;transition:color .15s,filter .15s}
+.blob-link:hover{color:#86ffe0;filter:drop-shadow(0 0 5px rgba(63,227,189,.45))}
+.blob-link:focus-visible{outline:1px solid var(--mint);outline-offset:3px;border-radius:3px}
+.recall-ans .src .blob-link{color:var(--mint);font-family:var(--fm)}
 .mem .slink{color:var(--text-dim);text-decoration:none;display:inline-flex;align-items:center;gap:5px;transition:.15s}
 .mem .slink:hover{color:var(--mint)}
 .addmem{display:flex;gap:10px;margin-top:18px}
@@ -651,6 +655,8 @@ function genManifest(){
       - <span class="s">app_mentions:read</span>
       - <span class="s">chat:write</span>
       - <span class="s">reactions:write</span>
+      - <span class="s">channels:read</span>
+      - <span class="s">users:read</span>
 <span class="k">settings</span>:
   <span class="k">event_subscriptions</span>:
     <span class="k">bot_events</span>:
@@ -680,21 +686,51 @@ function genServer(){
 app.<span class="f">event</span>(<span class="s">"app_mention"</span>, <span class="k">async</span> ({ event, client }) => {
   <span class="k">const</span> text = event.text.<span class="f">replace</span>(/&lt;@[^&gt;]+&gt;\\s*/, <span class="s">""</span>)
                          .<span class="f">replace</span>(/^remember\\s*/i, <span class="s">""</span>);
-  <span class="k">const</span> { permalink } = <span class="k">await</span> client.chat.<span class="f">getPermalink</span>({
-    channel: event.channel, message_ts: event.ts,
-  });
+  <span class="k">const</span> [{ permalink }, channelInfo, userInfo] = <span class="k">await</span> <span class="f">Promise</span>.all([
+    client.chat.<span class="f">getPermalink</span>({ channel: event.channel, message_ts: event.ts }),
+    client.conversations.<span class="f">info</span>({ channel: event.channel }),
+    client.users.<span class="f">info</span>({ user: event.user }),
+  ]);
+  <span class="k">const</span> channel = channelInfo.channel?.name || event.channel;
+  <span class="k">const</span> slackUser = userInfo.user;
+  <span class="k">const</span> user = slackUser?.profile?.real_name || slackUser?.real_name
+    || slackUser?.profile?.display_name || slackUser?.name || event.user;
 
   <span class="c">// store the message + where it came from</span>
   <span class="k">const</span> job = <span class="k">await</span> memwal.<span class="f">remember</span>(<span class="f">JSON</span>.stringify({
     text, source: <span class="s">"slack"</span>,
-    channel: event.channel, user: event.user,
+    channel, channel_id: event.channel,
+    user, user_id: event.user,
     ts: event.ts, url: permalink,
   }));
-  <span class="k">await</span> memwal.<span class="f">waitForRememberJob</span>(job.job_id);
 
   <span class="k">await</span> client.reactions.<span class="f">add</span>({
-    channel: event.channel, timestamp: event.ts, name: <span class="s">"white_check_mark"</span>,
+    channel: event.channel, timestamp: event.ts, name: <span class="s">"hourglass_flowing_sand"</span>,
   });
+  <span class="k">const</span> status = <span class="k">await</span> client.chat.<span class="f">postMessage</span>({
+    channel: event.channel, thread_ts: event.ts, text: <span class="s">"⏳ Saving this memory to Walrus…"</span>,
+  });
+
+  <span class="c">// Track slow staging jobs without blocking Slack's event handler.</span>
+  <span class="k">void</span> memwal.<span class="f">waitForRememberJob</span>(job.job_id, { timeoutMs: <span class="n">300_000</span> })
+    .<span class="f">then</span>(<span class="k">async</span> () => {
+      <span class="k">await</span> client.reactions.<span class="f">remove</span>({
+        channel: event.channel, timestamp: event.ts, name: <span class="s">"hourglass_flowing_sand"</span>,
+      });
+      <span class="k">await</span> client.reactions.<span class="f">add</span>({
+        channel: event.channel, timestamp: event.ts, name: <span class="s">"white_check_mark"</span>,
+      });
+      <span class="k">await</span> client.chat.<span class="f">update</span>({
+        channel: event.channel, ts: status.ts, text: <span class="s">"✅ Saved to shared memory."</span>,
+      });
+    })
+    .<span class="f">catch</span>(<span class="k">async</span> (error) => {
+      <span class="k">await</span> client.chat.<span class="f">update</span>({
+        channel: event.channel, ts: status.ts,
+        text: <span class="s">"⚠️ Walrus accepted this memory, but confirmation is still pending."</span>,
+      });
+      <span class="f">console</span>.error(<span class="s">"Remember job not confirmed:"</span>, error);
+    });
 });
 
 <span class="k">await</span> app.<span class="f">start</span>();
@@ -729,7 +765,7 @@ function genClaude(){
 /* plain-text versions for clipboard */
 function plain(which){
   const n=NET[S.net];
-  if(which==='manifest')return `display_information:\n  name: MemZap\nfeatures:\n  bot_user:\n    display_name: memzap\n    always_online: true\noauth_config:\n  scopes:\n    bot:\n      - app_mentions:read\n      - chat:write\n      - reactions:write\nsettings:\n  event_subscriptions:\n    bot_events:\n      - app_mention\n  socket_mode_enabled: true`;
+  if(which==='manifest')return `display_information:\n  name: MemZap\nfeatures:\n  bot_user:\n    display_name: memzap\n    always_online: true\noauth_config:\n  scopes:\n    bot:\n      - app_mentions:read\n      - chat:write\n      - reactions:write\n      - channels:read\n      - users:read\nsettings:\n  event_subscriptions:\n    bot_events:\n      - app_mention\n  socket_mode_enabled: true`;
   if(which==='server')return document.getElementById('serverCode').innerText;
   if(which==='env')return document.getElementById('envCode').innerText;
   if(which==='claude'||which==='claude2')return `{\n  "mcpServers": {\n    "memzap": {\n      "command": "npx",\n      "args": [\n        "-y", "@mysten-incubation/memwal-mcp",\n        "${n.preset}", "--namespace", "${S.ns}"\n      ]\n    }\n  }\n}`;
@@ -827,10 +863,12 @@ function parseMem(item){
     user:o.user||'',
     url:o.url||'',
     ago:o.ts?timeAgo(Number(o.ts)*1000):'',
-    bid:bid?shortId(bid):''
+    bid:bid?shortId(bid):'',
+    bidFull:bid?String(bid):''
   };
 }
 function shortId(s){s=String(s);return s.length>14?s.slice(0,6)+'…'+s.slice(-4):s;}
+function walruscanBlobUrl(blobId){return 'https://walruscan.com/testnet/blob/'+encodeURIComponent(String(blobId));}
 function timeAgo(ms){if(!ms||isNaN(ms))return'';const d=(Date.now()-ms)/1000;if(d<60)return'just now';if(d<3600)return Math.floor(d/60)+'m';if(d<86400)return Math.floor(d/3600)+'h';return Math.floor(d/86400)+'d';}
 function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
@@ -847,14 +885,17 @@ function render(filter,opts){
     el.style.animationDelay=(i*.04)+'s';
     const agoTxt=m.ago?(/now/.test(m.ago)?m.ago:m.ago+' ago'):'';
     const link=m.url?`<a class="slink" href="${m.url}" target="_blank" rel="noopener">view in Slack <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M7 7h10v10"/></svg></a>`:'';
+    const blob=m.bidFull
+      ?`<a class="verified blob-link" href="${walruscanBlobUrl(m.bidFull)}" target="_blank" rel="noopener noreferrer" title="View blob on Walruscan" aria-label="View this blob on Walruscan"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>${escapeHtml(m.bid)}</a>`
+      :`<span class="verified"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>${escapeHtml(m.bid||'on Walrus')}</span>`;
     el.innerHTML=`
       <div class="mtxt">${escapeHtml(m.text)}</div>
       <div class="morigin">
         <span class="chip"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M6 15a2 2 0 11-2-2h2zm1 0a2 2 0 014 0v5a2 2 0 11-4 0zm2-8a2 2 0 11-2 2V7zm0 1a2 2 0 010 4H4a2 2 0 010-4zm8 1a2 2 0 112-2v2zm-1 0a2 2 0 01-4 0V3a2 2 0 114 0zm-2 8a2 2 0 110-4h2a2 2 0 010 4z"/></svg>Slack</span>
         <span class="chip ch">#${escapeHtml(m.ch)}</span>
-        ${m.user?`<span class="chip user">@${escapeHtml(m.user)}</span>`:''}
+        ${m.user?`<span class="chip user">${escapeHtml(m.user)}</span>`:''}
         <div class="mmeta">
-          <span class="verified"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>${m.bid||'on Walrus'}</span>
+          ${blob}
           ${agoTxt?`<span>${agoTxt}</span>`:''}
           ${link}
         </div>
@@ -879,8 +920,11 @@ async function recall(){
   else { MEM=DEMO.slice(); render(q); hits=DEMO.filter(m=>matches(m,q)); }
   if(hits.length){
     const top=hits[0];
+    const blob=top.bidFull
+      ?` · <a class="blob-link" href="${walruscanBlobUrl(top.bidFull)}" target="_blank" rel="noopener noreferrer" title="View blob on Walruscan">${escapeHtml(top.bid)} on Walrus</a>`
+      :(top.bid?(' · '+escapeHtml(top.bid)+' on Walrus'):'');
     document.getElementById('recallText').textContent=top.text;
-    document.getElementById('recallSrc').innerHTML=`Recalled from <b>#${escapeHtml(top.ch||'memory')}</b>${top.user?(' · @'+escapeHtml(top.user)):''}${top.bid?(' · '+top.bid+' on Walrus'):''}`;
+    document.getElementById('recallSrc').innerHTML=`Recalled from <b>#${escapeHtml(top.ch||'memory')}</b>${top.user?(' · '+escapeHtml(top.user)):''}${blob}`;
   }else{
     document.getElementById('recallText').textContent="No memory matches that yet. Write one from Slack and ask again.";
     document.getElementById('recallSrc').innerHTML='';
