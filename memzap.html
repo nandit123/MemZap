@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MemZap — portable memory for Slack and Claude</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --abyss:#060f1c; --deep:#0a1729; --surface:#0d1f35; --surface-2:#11273f;
+  --mint:#3fe3bd; --mint-bright:#5cf2cf; --mint-deep:#1c8d76;
+  --cyan:#5bc8e8; --violet:#b18cf0; --coral:#ff9d6c; --gold:#ffcf8b;
+  --text:#e8f1f3; --text-dim:#93a8b8; --text-faint:#5e7588;
+  --line:rgba(99,230,200,.14); --line-strong:rgba(99,230,200,.28);
+  --glass:rgba(13,31,53,.62);
+  --r:14px; --r-lg:20px;
+  --fd:'Space Grotesk',sans-serif; --fb:'Inter',sans-serif; --fm:'JetBrains Mono',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  font-family:var(--fb); background:var(--abyss); color:var(--text);
+  -webkit-font-smoothing:antialiased; line-height:1.6; overflow-x:hidden;
+  background-image:
+    radial-gradient(1200px 700px at 78% -8%, rgba(63,227,189,.10), transparent 60%),
+    radial-gradient(900px 600px at 8% 18%, rgba(91,200,232,.07), transparent 55%),
+    radial-gradient(1100px 800px at 50% 120%, rgba(177,140,240,.06), transparent 60%);
+  background-attachment:fixed;
+}
+.plankton{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+.plankton span{position:absolute;width:3px;height:3px;border-radius:50%;background:var(--mint);opacity:.0;
+  box-shadow:0 0 8px 1px rgba(63,227,189,.7);animation:drift linear infinite}
+@keyframes drift{0%{transform:translateY(20px);opacity:0}10%{opacity:.55}90%{opacity:.4}100%{transform:translateY(-110vh);opacity:0}}
+@media(prefers-reduced-motion:reduce){.plankton{display:none} *{animation-duration:.001s!important}}
+
+/* ---------- shell ---------- */
+.wrap{position:relative;z-index:2;max-width:1180px;margin:0 auto;padding:0 26px}
+header{position:sticky;top:0;z-index:50;backdrop-filter:blur(16px);
+  background:linear-gradient(180deg,rgba(6,15,28,.86),rgba(6,15,28,.5));border-bottom:1px solid var(--line)}
+.nav{display:flex;align-items:center;gap:28px;height:66px}
+.brand{display:flex;align-items:center;gap:11px;font-family:var(--fd);font-weight:700;font-size:19px;letter-spacing:-.02em;cursor:pointer}
+.brand .mark{width:30px;height:30px;flex:none}
+.brand b{color:var(--mint);font-weight:700}
+.nav-links{display:flex;gap:4px;margin-left:8px}
+.nav-links button{font-family:var(--fb);font-size:14px;font-weight:500;color:var(--text-dim);background:none;border:none;
+  padding:8px 13px;border-radius:9px;cursor:pointer;transition:.18s}
+.nav-links button:hover{color:var(--text);background:rgba(99,230,200,.06)}
+.nav-links button.on{color:var(--mint);background:rgba(63,227,189,.1)}
+.nav-right{margin-left:auto;display:flex;align-items:center;gap:14px}
+
+/* network toggle */
+.net{display:flex;align-items:center;gap:8px;background:rgba(8,18,32,.7);border:1px solid var(--line);
+  border-radius:30px;padding:4px;position:relative}
+.net button{position:relative;z-index:2;font-family:var(--fm);font-size:11.5px;font-weight:500;letter-spacing:.04em;
+  text-transform:uppercase;color:var(--text-faint);background:none;border:none;padding:6px 13px;border-radius:30px;cursor:pointer;transition:.2s}
+.net button.on{color:var(--abyss)}
+.net .glider{position:absolute;top:4px;bottom:4px;border-radius:30px;background:var(--mint);
+  box-shadow:0 0 16px rgba(63,227,189,.5);transition:transform .28s cubic-bezier(.6,.2,.1,1),width .28s,background .2s;z-index:1}
+.net.main .glider{background:var(--gold);box-shadow:0 0 16px rgba(255,207,139,.5)}
+
+/* ---------- views ---------- */
+.view{display:none;animation:fade .5s ease both;padding:48px 0 90px}
+.view.show{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+.eyebrow{font-family:var(--fm);font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--mint);
+  display:inline-flex;align-items:center;gap:9px;margin-bottom:20px}
+.eyebrow::before{content:"";width:22px;height:1px;background:var(--mint);opacity:.6}
+h1{font-family:var(--fd);font-weight:700;letter-spacing:-.03em;line-height:1.04}
+h2{font-family:var(--fd);font-weight:600;letter-spacing:-.02em;font-size:30px;line-height:1.1}
+h3{font-family:var(--fd);font-weight:600;letter-spacing:-.01em;font-size:18px}
+.lead{color:var(--text-dim);font-size:18px;max-width:560px}
+
+/* ---------- hero ---------- */
+.hero{display:grid;grid-template-columns:1.05fr .95fr;gap:54px;align-items:center;min-height:62vh}
+.hero h1{font-size:clamp(42px,6vw,68px)}
+.hero h1 .glow{color:var(--mint);text-shadow:0 0 38px rgba(63,227,189,.45)}
+.hero .lead{margin:26px 0 34px;font-size:19px}
+.cta-row{display:flex;gap:14px;flex-wrap:wrap}
+.btn{font-family:var(--fd);font-weight:600;font-size:15px;border-radius:12px;padding:13px 24px;cursor:pointer;
+  border:1px solid transparent;transition:.2s;display:inline-flex;align-items:center;gap:9px;text-decoration:none}
+.btn-primary{background:var(--mint);color:#04221b;box-shadow:0 0 0 0 rgba(63,227,189,.5)}
+.btn-primary:hover{background:var(--mint-bright);box-shadow:0 8px 30px -6px rgba(63,227,189,.6);transform:translateY(-1px)}
+.btn-ghost{background:rgba(99,230,200,.04);border-color:var(--line-strong);color:var(--text)}
+.btn-ghost:hover{background:rgba(99,230,200,.1);border-color:var(--mint)}
+.btn-sm{padding:8px 15px;font-size:13px;border-radius:9px}
+
+.hero-art{position:relative}
+.thread-card{background:var(--glass);border:1px solid var(--line);border-radius:var(--r-lg);padding:28px 24px;
+  backdrop-filter:blur(8px);box-shadow:0 30px 80px -40px rgba(0,0,0,.8)}
+.thread-card .cap{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.thread-card .cap small{font-family:var(--fm);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint)}
+.pulse-dot{width:7px;height:7px;border-radius:50%;background:var(--mint);box-shadow:0 0 10px var(--mint);animation:bp 2s ease-in-out infinite}
+@keyframes bp{0%,100%{opacity:.4}50%{opacity:1}}
+.flowlabel{font-family:var(--fm);font-size:12.5px;color:var(--mint);height:18px;margin-top:14px;text-align:center;transition:.3s}
+
+/* node row in svg handled inline */
+.mini-stats{display:flex;gap:10px;margin-top:18px}
+.mini-stats div{flex:1;background:rgba(8,18,32,.5);border:1px solid var(--line);border-radius:11px;padding:11px 13px}
+.mini-stats b{font-family:var(--fd);font-size:20px;color:var(--text);display:block}
+.mini-stats span{font-size:11px;color:var(--text-faint);font-family:var(--fm);letter-spacing:.03em}
+
+/* ---------- problem strip ---------- */
+.prob{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:80px}
+.prob .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:24px 22px;transition:.25s}
+.prob .card:hover{border-color:var(--line-strong);transform:translateY(-3px)}
+.prob .ic{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;margin-bottom:15px;
+  background:rgba(255,157,108,.12);color:var(--coral)}
+.prob .card.fix .ic{background:rgba(63,227,189,.12);color:var(--mint)}
+.prob h3{margin-bottom:8px}
+.prob p{color:var(--text-dim);font-size:14.5px}
+
+/* ---------- section frame ---------- */
+.sec-head{margin-bottom:34px;max-width:620px}
+.sec-head h2{margin-bottom:12px}
+.sec-head p{color:var(--text-dim);font-size:16px}
+
+/* ---------- setup wizard ---------- */
+.wiz{display:grid;grid-template-columns:230px 1fr;gap:36px;align-items:start}
+.steps{position:sticky;top:90px;display:flex;flex-direction:column;gap:2px}
+.steps button{display:flex;gap:14px;align-items:flex-start;text-align:left;background:none;border:none;cursor:pointer;
+  padding:14px 14px;border-radius:12px;transition:.2s;width:100%}
+.steps button:hover{background:rgba(99,230,200,.05)}
+.steps button.on{background:rgba(63,227,189,.08)}
+.steps .num{width:26px;height:26px;border-radius:50%;flex:none;display:grid;place-items:center;font-family:var(--fm);
+  font-size:12px;border:1px solid var(--line-strong);color:var(--text-faint);transition:.2s}
+.steps button.on .num{background:var(--mint);color:var(--abyss);border-color:var(--mint);box-shadow:0 0 14px rgba(63,227,189,.5)}
+.steps button.done .num{background:rgba(63,227,189,.15);color:var(--mint);border-color:var(--mint)}
+.steps .stxt b{font-family:var(--fd);font-size:14.5px;font-weight:500;display:block;color:var(--text)}
+.steps .stxt span{font-size:12.5px;color:var(--text-faint)}
+.steps button.on .stxt b{color:var(--mint)}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:32px 30px;min-height:380px;display:none;animation:fade .4s both}
+.panel.show{display:block}
+.panel .ph{display:flex;align-items:center;gap:13px;margin-bottom:8px}
+.panel .ph .badge{font-family:var(--fm);font-size:11px;color:var(--mint);background:rgba(63,227,189,.1);border:1px solid var(--line);
+  padding:4px 10px;border-radius:20px;letter-spacing:.08em}
+.panel h2{font-size:24px;margin-bottom:10px}
+.panel .pdesc{color:var(--text-dim);font-size:15px;margin-bottom:24px;max-width:560px}
+
+.field{margin-bottom:18px}
+.field label{display:block;font-size:13px;font-weight:500;color:var(--text);margin-bottom:7px}
+.field label .hint{color:var(--text-faint);font-weight:400;font-family:var(--fb)}
+.field input{width:100%;background:rgba(6,15,28,.7);border:1px solid var(--line-strong);border-radius:10px;
+  padding:12px 14px;color:var(--text);font-family:var(--fm);font-size:13.5px;transition:.2s}
+.field input:focus{outline:none;border-color:var(--mint);box-shadow:0 0 0 3px rgba(63,227,189,.12)}
+.field input::placeholder{color:var(--text-faint)}
+
+.callout{display:flex;gap:13px;background:rgba(91,200,232,.06);border:1px solid rgba(91,200,232,.2);
+  border-radius:12px;padding:14px 16px;margin:20px 0;font-size:13.5px;color:var(--text-dim)}
+.callout svg{flex:none;color:var(--cyan);margin-top:1px}
+.callout.warn{background:rgba(255,207,139,.06);border-color:rgba(255,207,139,.22)}
+.callout.warn svg{color:var(--gold)}
+.callout b{color:var(--text)}
+
+/* code blocks */
+.code{position:relative;background:#05101e;border:1px solid var(--line);border-radius:12px;margin:8px 0 4px}
+.code .ct{display:flex;align-items:center;justify-content:space-between;padding:9px 13px;border-bottom:1px solid var(--line)}
+.code .ct span{font-family:var(--fm);font-size:11.5px;color:var(--text-faint);letter-spacing:.05em}
+.copy{font-family:var(--fm);font-size:11px;color:var(--mint);background:rgba(63,227,189,.08);border:1px solid var(--line);
+  border-radius:7px;padding:5px 11px;cursor:pointer;transition:.18s;display:flex;align-items:center;gap:6px}
+.copy:hover{background:rgba(63,227,189,.16)}
+.copy.ok{color:var(--abyss);background:var(--mint)}
+.code pre{margin:0;padding:15px 16px;overflow-x:auto}
+.code code{font-family:var(--fm);font-size:12.8px;line-height:1.7;color:#cfe7e0;white-space:pre}
+.code .k{color:var(--violet)} .code .s{color:var(--gold)} .code .c{color:var(--text-faint)} .code .f{color:var(--mint)} .code .n{color:var(--cyan)}
+
+.pnav{display:flex;justify-content:space-between;margin-top:26px;padding-top:22px;border-top:1px solid var(--line)}
+
+/* ---------- dashboard / memory ---------- */
+.mtop{display:flex;gap:18px;align-items:flex-end;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap}
+.recall{flex:1;min-width:280px;position:relative}
+.recall input{width:100%;background:var(--surface);border:1px solid var(--line-strong);border-radius:13px;
+  padding:15px 17px 15px 46px;color:var(--text);font-size:15px;font-family:var(--fb);transition:.2s}
+.recall input:focus{outline:none;border-color:var(--mint);box-shadow:0 0 0 3px rgba(63,227,189,.12)}
+.recall svg{position:absolute;left:16px;top:50%;transform:translateY(-50%);color:var(--mint)}
+.recall .rk{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-family:var(--fm);font-size:11px;color:var(--text-faint);
+  border:1px solid var(--line);border-radius:6px;padding:3px 8px}
+.mstats{display:flex;gap:12px}
+.mstats .pill{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 16px;text-align:center}
+.mstats .pill b{font-family:var(--fd);font-size:22px;color:var(--mint);display:block;line-height:1}
+.mstats .pill span{font-size:11px;color:var(--text-faint);font-family:var(--fm);letter-spacing:.04em}
+
+.recall-ans{background:linear-gradient(135deg,rgba(63,227,189,.1),rgba(91,200,232,.05));border:1px solid var(--line-strong);
+  border-radius:var(--r);padding:18px 20px;margin-bottom:22px;display:none;animation:fade .4s both}
+.recall-ans.show{display:block}
+.recall-ans .rl{font-family:var(--fm);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--mint);margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.recall-ans p{font-size:15.5px;color:var(--text)}
+.recall-ans .src{margin-top:12px;font-size:12.5px;color:var(--text-dim)}
+.recall-ans .src b{color:var(--coral)}
+
+.feed{display:flex;flex-direction:column;gap:13px}
+.mem{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;transition:.22s;position:relative;overflow:hidden}
+.mem::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--violet);opacity:.7}
+.mem:hover{border-color:var(--line-strong);transform:translateX(3px)}
+.mem.hit{border-color:var(--mint);box-shadow:0 0 0 1px var(--mint),0 0 30px -10px rgba(63,227,189,.5)}
+.mem .mtxt{font-size:15.5px;color:var(--text);margin-bottom:13px;line-height:1.5}
+.mem .morigin{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:rgba(177,140,240,.1);border:1px solid rgba(177,140,240,.25);
+  color:#cdb6f7;border-radius:20px;padding:4px 11px;font-family:var(--fm);font-size:11.5px}
+.chip.ch{background:rgba(255,157,108,.08);border-color:rgba(255,157,108,.22);color:var(--coral)}
+.chip.user{background:rgba(91,200,232,.08);border-color:rgba(91,200,232,.2);color:var(--cyan)}
+.mem .mmeta{margin-left:auto;display:flex;align-items:center;gap:12px;color:var(--text-faint);font-family:var(--fm);font-size:11px}
+.mem .verified{display:inline-flex;align-items:center;gap:5px;color:var(--mint)}
+.mem .slink{color:var(--text-dim);text-decoration:none;display:inline-flex;align-items:center;gap:5px;transition:.15s}
+.mem .slink:hover{color:var(--mint)}
+.addmem{display:flex;gap:10px;margin-top:18px}
+.addmem input{flex:1;background:var(--surface);border:1px dashed var(--line-strong);border-radius:11px;padding:12px 15px;color:var(--text);font-size:14px}
+.addmem input:focus{outline:none;border-color:var(--mint);border-style:solid}
+.bridge-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:11px 16px;margin-bottom:18px;flex-wrap:wrap}
+.bb-left{display:flex;align-items:center;gap:11px;font-size:13.5px;color:var(--text-dim)}
+.bb-left code{font-family:var(--fm);font-size:12px;color:var(--mint);background:rgba(63,227,189,.1);padding:1px 6px;border-radius:5px}
+.bb-left b{color:var(--text)}
+.bb-dot{width:9px;height:9px;border-radius:50%;background:var(--text-faint);flex:none;transition:.3s}
+.bb-dot.live{background:var(--mint);box-shadow:0 0 10px var(--mint);animation:bp 2s ease-in-out infinite}
+.bb-dot.connecting{background:var(--gold);box-shadow:0 0 10px var(--gold);animation:bp 1s ease-in-out infinite}
+.bb-dot.demo{background:var(--text-faint)}
+.bb-right{display:flex;align-items:center;gap:8px}
+.bb-right input{background:rgba(6,15,28,.7);border:1px solid var(--line-strong);border-radius:9px;padding:8px 11px;color:var(--text);font-family:var(--fm);font-size:12.5px;width:188px}
+.bb-right input:focus{outline:none;border-color:var(--mint)}
+
+/* ---------- guide ---------- */
+.guide-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+.gstep{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:24px;position:relative;transition:.22s}
+.gstep:hover{border-color:var(--line-strong);transform:translateY(-3px)}
+.gstep .gn{font-family:var(--fd);font-size:13px;color:var(--abyss);background:var(--mint);width:30px;height:30px;border-radius:9px;
+  display:grid;place-items:center;font-weight:700;margin-bottom:16px;box-shadow:0 0 18px rgba(63,227,189,.4)}
+.gstep h3{margin-bottom:9px}
+.gstep p{color:var(--text-dim);font-size:14px}
+.gstep code{font-family:var(--fm);font-size:12.5px;background:rgba(63,227,189,.1);color:var(--mint);padding:1px 6px;border-radius:5px}
+
+/* config view */
+.cfg-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.cfg-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:22px 22px}
+.cfg-card h3{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.cfg-card .cd{font-size:13.5px;color:var(--text-dim);margin-bottom:14px}
+.conn{display:flex;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--line);
+  border-radius:12px;padding:14px 18px;margin-bottom:10px}
+.conn .ci{display:flex;align-items:center;gap:13px}
+.conn .dotg{width:9px;height:9px;border-radius:50%;background:var(--mint);box-shadow:0 0 10px var(--mint)}
+.conn .nm{font-family:var(--fd);font-weight:500;font-size:15px}
+.conn .sub{font-size:12px;color:var(--text-faint);font-family:var(--fm)}
+.tag-live{font-family:var(--fm);font-size:11px;color:var(--mint);background:rgba(63,227,189,.1);padding:4px 10px;border-radius:20px;border:1px solid var(--line)}
+
+footer{border-top:1px solid var(--line);padding:30px 0;text-align:center;color:var(--text-faint);font-size:13px;position:relative;z-index:2}
+footer b{color:var(--mint)}
+
+.icon{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+@media(max-width:880px){
+  .hero{grid-template-columns:1fr;gap:32px}
+  .prob,.cfg-grid,.guide-grid{grid-template-columns:1fr}
+  .wiz{grid-template-columns:1fr}
+  .steps{position:static;flex-direction:row;overflow-x:auto;gap:6px}
+  .steps button{flex:none;width:auto}
+  .steps .stxt span{display:none}
+  .nav-links{display:none}
+}
+</style>
+</head>
+<body>
+<div class="plankton" id="plankton"></div>
+
+<header>
+  <div class="wrap">
+    <nav class="nav">
+      <div class="brand" onclick="go('overview')">
+        <svg class="mark" viewBox="0 0 40 40" fill="none">
+          <circle cx="20" cy="20" r="18" stroke="var(--mint)" stroke-width="1.4" opacity=".35"/>
+          <path d="M20 6 C12 12 12 22 14 30 C16 26 18 27 20 31 C22 27 24 26 26 30 C28 22 28 12 20 6Z" fill="var(--mint)" opacity=".9"/>
+          <circle cx="16" cy="17" r="1.6" fill="#04221b"/><circle cx="24" cy="17" r="1.6" fill="#04221b"/>
+        </svg>
+        Mem<b>Zap</b>
+      </div>
+      <div class="nav-links" id="navlinks">
+        <button data-v="overview" class="on" onclick="go('overview')">Overview</button>
+        <button data-v="setup" onclick="go('setup')">Setup</button>
+        <button data-v="memory" onclick="go('memory')">Shared memory</button>
+        <button data-v="claude" onclick="go('claude')">Claude</button>
+        <button data-v="guide" onclick="go('guide')">Guide</button>
+      </div>
+      <div class="nav-right">
+        <div class="net" id="net" role="group" aria-label="Network">
+          <span class="glider" id="glider"></span>
+          <button class="on" data-net="testnet" onclick="setNet('testnet')">Testnet</button>
+          <button data-net="mainnet" onclick="setNet('mainnet')">Mainnet</button>
+        </div>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+<!-- ===================== OVERVIEW ===================== -->
+<section class="view show" id="v-overview">
+  <div class="hero">
+    <div>
+      <span class="eyebrow">Portable memory · Slack → Walrus → Claude</span>
+      <h1>Memory that <span class="glow">travels with you</span> across every app you use.</h1>
+      <p class="lead">Tell a Slack bot to remember something. Recall it in Claude. The memory never lives inside either app — it's encrypted on Walrus, anchored on Sui, and owned by you.</p>
+      <div class="cta-row">
+        <button class="btn btn-primary" onclick="go('setup')">Set up the bridge
+          <svg class="icon" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+        <button class="btn btn-ghost" onclick="go('memory')">See shared memory</button>
+      </div>
+      <div class="mini-stats">
+        <div><b>1</b><span>memory you own</span></div>
+        <div><b>2</b><span>apps, in sync</span></div>
+        <div><b>0</b><span>vendor lock-in</span></div>
+      </div>
+    </div>
+
+    <div class="hero-art">
+      <div class="thread-card">
+        <div class="cap"><small>Live bridge</small><span class="pulse-dot"></span></div>
+        <svg viewBox="0 0 360 220" width="100%" id="threadSvg">
+          <defs>
+            <linearGradient id="tg" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#b18cf0"/><stop offset=".5" stop-color="#3fe3bd"/><stop offset="1" stop-color="#ff9d6c"/>
+            </linearGradient>
+            <radialGradient id="core"><stop offset="0" stop-color="#5cf2cf"/><stop offset="1" stop-color="#1c8d76"/></radialGradient>
+          </defs>
+          <!-- thread path -->
+          <path id="wire" d="M50 60 C 130 60, 130 110, 180 110 C 230 110, 230 160, 310 160" stroke="url(#tg)" stroke-width="2" fill="none" opacity=".55"/>
+          <path id="wire2" d="M50 160 C 130 160, 130 110, 180 110 C 230 110, 230 60, 310 60" stroke="url(#tg)" stroke-width="2" fill="none" opacity=".25" stroke-dasharray="4 5"/>
+          <!-- nodes -->
+          <g>
+            <circle cx="50" cy="60" r="22" fill="#11273f" stroke="#b18cf0" stroke-width="1.4"/>
+            <text x="50" y="64" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#cdb6f7">Slack</text>
+          </g>
+          <g>
+            <circle cx="180" cy="110" r="30" fill="url(#core)" opacity=".9"/>
+            <circle cx="180" cy="110" r="30" fill="none" stroke="#5cf2cf" stroke-width="1.4"/>
+            <text x="180" y="107" text-anchor="middle" font-family="Space Grotesk" font-weight="600" font-size="10" fill="#04221b">Walrus</text>
+            <text x="180" y="119" text-anchor="middle" font-family="JetBrains Mono" font-size="7.5" fill="#04221b">memory</text>
+          </g>
+          <g>
+            <circle cx="310" cy="160" r="22" fill="#11273f" stroke="#ff9d6c" stroke-width="1.4"/>
+            <text x="310" y="164" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#ff9d6c">Claude</text>
+          </g>
+          <!-- packet -->
+          <circle id="packet" r="5" fill="#5cf2cf" opacity="0"><animate id="pktA" attributeName="opacity" values="0" dur="0.1s"/></circle>
+        </svg>
+        <div class="flowlabel" id="flowlabel">@memzap remember: launch is August 2026</div>
+        <div class="mini-stats">
+          <div><b id="hsCount">6</b><span>memories</span></div>
+          <div><b id="hsNet">Testnet</b><span>network</span></div>
+          <div><b>Seal</b><span>encrypted</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- problem strip -->
+  <div class="prob">
+    <div class="card">
+      <div class="ic"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></div>
+      <h3>Memory is trapped per app</h3>
+      <p>What you tell Claude stays in Claude. What happens in Slack stays in Slack. Every tool starts from zero, and you can't move your own context between them.</p>
+    </div>
+    <div class="card">
+      <div class="ic"><svg class="icon" viewBox="0 0 24 24"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="9"/></svg></div>
+      <h3>You don't own it</h3>
+      <p>When memory does exist, it lives in a vendor's database. You can't verify it, move it, or take it with you when you switch tools.</p>
+    </div>
+    <div class="card fix">
+      <div class="ic"><svg class="icon" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div>
+      <h3>MemZap anchors it once</h3>
+      <p>One encrypted memory space on Walrus that both Slack and Claude read and write. Portable, verifiable, and controlled by your keys — not anyone's server.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== SETUP ===================== -->
+<section class="view" id="v-setup">
+  <div class="sec-head">
+    <span class="eyebrow">Setup</span>
+    <h2>Wire the bridge in four steps</h2>
+    <p>Create the memory space, point Slack at it, point Claude at it. The dashboard fills in your network endpoints automatically — you're on <b id="setupNet">Testnet</b> right now.</p>
+  </div>
+
+  <div class="wiz">
+    <div class="steps" id="stepNav">
+      <button class="on" data-s="1" onclick="setStep(1)"><span class="num">1</span><span class="stxt"><b>Memory space</b><span>Generate your keys</span></span></button>
+      <button data-s="2" onclick="setStep(2)"><span class="num">2</span><span class="stxt"><b>Connect Slack</b><span>Bot that remembers</span></span></button>
+      <button data-s="3" onclick="setStep(3)"><span class="num">3</span><span class="stxt"><b>Connect Claude</b><span>MCP recall</span></span></button>
+      <button data-s="4" onclick="setStep(4)"><span class="num">4</span><span class="stxt"><b>Test it</b><span>Slack → Claude</span></span></button>
+    </div>
+
+    <div>
+      <!-- step 1 -->
+      <div class="panel show" id="p1">
+        <div class="ph"><span class="badge">STEP 1</span></div>
+        <h2>Create your memory space</h2>
+        <p class="pdesc">Walrus Memory scopes everything to an account plus a namespace. Generate a fresh account ID and delegate key from the hosted endpoint, then paste them back here — they wire every config below.</p>
+
+        <div class="field">
+          <label>Namespace <span class="hint">— keeps Slack memories separate from other spaces</span></label>
+          <input id="nsInput" value="slack" oninput="syncAll()">
+        </div>
+
+        <a class="btn btn-primary btn-sm" id="genLink" href="https://staging.memory.walrus.xyz" target="_blank" rel="noopener" style="margin:4px 0 6px">
+          Generate keys at Walrus Memory
+          <svg class="icon" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M7 17L17 7M7 7h10v10"/></svg></a>
+
+        <div class="field" style="margin-top:18px">
+          <label>Account ID <span class="hint">— your MemWalAccount object on Sui</span></label>
+          <input id="acctInput" placeholder="0x… (paste from Walrus Memory)" oninput="syncAll()">
+        </div>
+        <div class="field">
+          <label>Delegate private key <span class="hint">— Ed25519 hex, used only by your Slack server</span></label>
+          <input id="keyInput" placeholder="paste your delegate key" oninput="syncAll()">
+        </div>
+
+        <div class="callout warn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0z"/></svg>
+          <div>The delegate key lives only in your bot server's environment. Claude never needs it — it signs in through a browser flow instead. <b>Never paste it into a Claude config file.</b></div>
+        </div>
+
+        <div class="pnav"><span></span><button class="btn btn-primary btn-sm" onclick="setStep(2)">Next: connect Slack →</button></div>
+      </div>
+
+      <!-- step 2 -->
+      <div class="panel" id="p2">
+        <div class="ph"><span class="badge">STEP 2</span></div>
+        <h2>Connect Slack</h2>
+        <p class="pdesc">Create a Slack app from this manifest, then run the bot server. When you tag <code style="font-family:var(--fm);color:var(--mint)">@memzap remember …</code> in any channel, it writes that message — plus where it came from — into your memory space.</p>
+
+        <div class="code">
+          <div class="ct"><span>slack-app-manifest.yaml</span><button class="copy" data-c="manifest">Copy</button></div>
+          <pre><code id="manifestCode"></code></pre>
+        </div>
+
+        <div class="callout"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+          <div>At <b>api.slack.com/apps → Create New App → From manifest</b>, paste the above. Install to your workspace, then copy the bot, app, and signing tokens into the server's <code style="color:var(--mint);font-family:var(--fm)">.env</code>.</div>
+        </div>
+
+        <h3 style="margin:22px 0 8px">Bot server <span style="font-family:var(--fm);font-size:12px;color:var(--text-faint)">— the only piece you host</span></h3>
+        <div class="code">
+          <div class="ct"><span>server.mjs · runs the write path</span><button class="copy" data-c="server">Copy</button></div>
+          <pre><code id="serverCode"></code></pre>
+        </div>
+        <div class="code">
+          <div class="ct"><span>.env</span><button class="copy" data-c="env">Copy</button></div>
+          <pre><code id="envCode"></code></pre>
+        </div>
+
+        <div class="pnav"><button class="btn btn-ghost btn-sm" onclick="setStep(1)">← Back</button><button class="btn btn-primary btn-sm" onclick="setStep(3)">Next: connect Claude →</button></div>
+      </div>
+
+      <!-- step 3 -->
+      <div class="panel" id="p3">
+        <div class="ph"><span class="badge">STEP 3</span></div>
+        <h2>Connect Claude</h2>
+        <p class="pdesc">Walrus Memory ships an MCP server, so Claude reads your memory with zero custom code. Drop this into your Claude config and restart. The first time Claude calls a memory tool, it opens a browser sign-in — no keys in the file.</p>
+
+        <div class="code">
+          <div class="ct"><span>claude_desktop_config.json</span><button class="copy" data-c="claude">Copy</button></div>
+          <pre><code id="claudeCode"></code></pre>
+        </div>
+
+        <div class="callout"><svg class="icon" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+          <div>Open <b>Claude → Settings → Developer → Edit config</b>, paste, and restart Claude. Then ask Claude to recall — it gets the tools <code style="color:var(--mint);font-family:var(--fm)">memwal_recall</code> and <code style="color:var(--mint);font-family:var(--fm)">memwal_remember</code> against your <code style="color:var(--mint);font-family:var(--fm)" id="nsEcho">slack</code> namespace.</div>
+        </div>
+
+        <div class="callout"><svg class="icon" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          <div>Using Cursor or Claude Code instead? Same block, different file (<code style="color:var(--mint);font-family:var(--fm)">~/.cursor/mcp.json</code>). The package and flags are identical.</div>
+        </div>
+
+        <div class="pnav"><button class="btn btn-ghost btn-sm" onclick="setStep(2)">← Back</button><button class="btn btn-primary btn-sm" onclick="setStep(4)">Next: test it →</button></div>
+      </div>
+
+      <!-- step 4 -->
+      <div class="panel" id="p4">
+        <div class="ph"><span class="badge">STEP 4</span></div>
+        <h2>Run the bridge end to end</h2>
+        <p class="pdesc">Three moves prove the whole thing works. This is also your live demo script.</p>
+
+        <div class="guide-grid" style="margin-bottom:8px">
+          <div class="gstep"><div class="gn">1</div><h3>Write in Slack</h3><p>In any channel: <code>@memzap remember the TGE is targeting August 2026</code>. The bot reacts with ✓ once it's stored on Walrus.</p></div>
+          <div class="gstep"><div class="gn">2</div><h3>Recall in Claude</h3><p>Ask Claude: <code>what launch date did I save?</code> It calls <code>memwal_recall</code> and answers from the memory you wrote in Slack.</p></div>
+          <div class="gstep"><div class="gn">3</div><h3>Prove ownership</h3><p>Open <b>Shared memory</b> here to see the entry, its Slack origin, and its Walrus verification — living in neither app.</p></div>
+          <div class="gstep" style="background:linear-gradient(135deg,rgba(63,227,189,.1),rgba(91,200,232,.04));border-color:var(--line-strong)">
+            <div class="gn" style="background:var(--cyan);box-shadow:0 0 18px rgba(91,200,232,.4)">★</div>
+            <h3>The line that lands</h3><p>“This memory isn't in Slack and isn't in Claude. It's encrypted on Walrus, and I hold the keys.”</p></div>
+        </div>
+
+        <div class="pnav"><button class="btn btn-ghost btn-sm" onclick="setStep(3)">← Back</button><button class="btn btn-primary btn-sm" onclick="go('memory')">Open shared memory →</button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== MEMORY DASHBOARD ===================== -->
+<section class="view" id="v-memory">
+  <div class="sec-head">
+    <span class="eyebrow">Shared memory</span>
+    <h2>One memory, every origin visible</h2>
+    <p>Everything written from Slack, recallable by Claude, owned by you. Each entry shows exactly where it came from.</p>
+  </div>
+
+  <div class="bridge-bar">
+    <div class="bb-left"><span class="bb-dot connecting" id="bbDot"></span><span id="bbStatus">Connecting to your bridge…</span></div>
+    <div class="bb-right">
+      <input id="bridgeUrl" value="http://localhost:8787" spellcheck="false" onkeydown="if(event.key==='Enter')connectBridge()">
+      <button class="btn btn-ghost btn-sm" onclick="connectBridge()">Reconnect</button>
+    </div>
+  </div>
+
+  <div class="mtop">
+    <div class="recall">
+      <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="recallInput" placeholder="Ask your memory — e.g. what's the launch date?" onkeydown="if(event.key==='Enter')recall()">
+      <span class="rk">↵ recall</span>
+    </div>
+    <div class="mstats">
+      <div class="pill"><b id="mCount">6</b><span>MEMORIES</span></div>
+      <div class="pill"><b id="mSrc">DEMO</b><span>SOURCE</span></div>
+      <div class="pill"><b id="mNet">TEST</b><span>NETWORK</span></div>
+    </div>
+  </div>
+
+  <div class="recall-ans" id="recallAns">
+    <div class="rl"><span class="pulse-dot"></span>Claude would answer</div>
+    <p id="recallText"></p>
+    <div class="src" id="recallSrc"></div>
+  </div>
+
+  <div class="feed" id="feed"></div>
+
+  <div class="addmem">
+    <input id="addInput" placeholder="Simulate a memory (demo) — type and press enter" onkeydown="if(event.key==='Enter')addMem()">
+    <button class="btn btn-primary btn-sm" onclick="addMem()">Write to Walrus</button>
+  </div>
+</section>
+
+<!-- ===================== CLAUDE CONFIG ===================== -->
+<section class="view" id="v-claude">
+  <div class="sec-head">
+    <span class="eyebrow">Claude connections</span>
+    <h2>Manage how Claude reaches your memory</h2>
+    <p>Every MCP client you connect shares the same memory space. Add, inspect, or regenerate a config without touching your keys.</p>
+  </div>
+
+  <div class="cfg-grid">
+    <div class="cfg-card">
+      <h3><svg class="icon" viewBox="0 0 24 24" style="color:var(--mint)"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg> Connected clients</h3>
+      <div class="cd">Clients currently pointed at your <code id="nsEcho2" style="font-family:var(--fm);color:var(--mint)">slack</code> namespace.</div>
+      <div class="conn"><div class="ci"><span class="dotg"></span><div><div class="nm">Claude Desktop</div><div class="sub">memwal · <span class="netEcho">staging</span></div></div></div><span class="tag-live">live</span></div>
+      <div class="conn"><div class="ci"><span class="dotg"></span><div><div class="nm">Claude Code</div><div class="sub">memwal · <span class="netEcho">staging</span></div></div></div><span class="tag-live">live</span></div>
+      <div class="conn" style="opacity:.6"><div class="ci"><span class="dotg" style="background:var(--text-faint);box-shadow:none"></span><div><div class="nm">Cursor</div><div class="sub">not connected</div></div></div><button class="btn btn-ghost btn-sm" onclick="go('setup');setStep(3)">Connect</button></div>
+    </div>
+
+    <div class="cfg-card">
+      <h3><svg class="icon" viewBox="0 0 24 24" style="color:var(--mint)"><path d="M14.7 6.3a4 4 0 010 5.6l-3 3a4 4 0 01-5.6-5.6l1.5-1.5M9.3 17.7a4 4 0 010-5.6l3-3a4 4 0 015.6 5.6l-1.5 1.5"/></svg> Config for this network</h3>
+      <div class="cd">Switch the network toggle up top and this regenerates with the right preset and endpoints.</div>
+      <div class="code" style="margin-top:0">
+        <div class="ct"><span>claude_desktop_config.json</span><button class="copy" data-c="claude2">Copy</button></div>
+        <pre><code id="claudeCode2"></code></pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout" style="margin-top:18px"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+    <div>Credentials are stored locally on each client at <code style="color:var(--mint);font-family:var(--fm)">~/.memwal/credentials.json</code> after the browser login. Revoke a client anytime from the <a href="https://staging.memory.walrus.xyz" target="_blank" rel="noopener" style="color:var(--mint)">Walrus Memory dashboard</a>.</div>
+  </div>
+</section>
+
+<!-- ===================== GUIDE ===================== -->
+<section class="view" id="v-guide">
+  <div class="sec-head">
+    <span class="eyebrow">How it works</span>
+    <h2>The whole bridge, start to finish</h2>
+    <p>Slack writes from one side, Claude reads from the other, and the memory you own sits in the middle. Here's each piece.</p>
+  </div>
+
+  <div class="guide-grid">
+    <div class="gstep"><div class="gn">1</div><h3>You own a memory space</h3><p>An account on Sui plus a namespace. Content is encrypted with Seal before it touches Walrus storage — only your keys and chosen delegates can read it.</p></div>
+    <div class="gstep"><div class="gn">2</div><h3>Slack writes through a bot</h3><p>Tag the bot; its server catches the mention, captures the channel, author, and permalink, and calls <code>memwal.remember()</code> via the relayer.</p></div>
+    <div class="gstep"><div class="gn">3</div><h3>Walrus stores it durably</h3><p>The relayer embeds the text, encrypts it, and writes the blob to Walrus. The Sui contract records ownership so nobody else can read or alter it.</p></div>
+    <div class="gstep"><div class="gn">4</div><h3>Claude reads through MCP</h3><p>The Walrus Memory MCP server gives Claude <code>memwal_recall</code>. Ask a question; Claude pulls the matching memory — including ones written in Slack.</p></div>
+    <div class="gstep"><div class="gn">5</div><h3>Origins stay attached</h3><p>Every memory keeps its source. The dashboard shows which Slack channel, person, and message each one came from, with a link back.</p></div>
+    <div class="gstep"><div class="gn">6</div><h3>Testnet first, then mainnet</h3><p>Build on <code>--staging</code> with test endpoints. Flip one toggle to move to <code>--prod</code> mainnet — the configs regenerate, your flow doesn't change.</p></div>
+  </div>
+
+  <div style="margin-top:26px;text-align:center">
+    <button class="btn btn-primary" onclick="go('setup')">Start setup
+      <svg class="icon" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+  </div>
+</section>
+
+</main>
+
+<footer class="wrap">
+  Built on <b>Walrus Memory</b> · Seal-encrypted, Sui-anchored, owned by you · MemZap bridges Slack and Claude
+</footer>
+
+<script>
+/* ---------- network config (real endpoints) ---------- */
+const NET={
+  testnet:{label:'Testnet',short:'TEST',endpoint:'https://staging.memory.walrus.xyz',relayer:'https://relayer-staging.memory.walrus.xyz',preset:'--staging',env:'staging'},
+  mainnet:{label:'Mainnet',short:'MAIN',endpoint:'https://memory.walrus.xyz',relayer:'https://relayer.memory.walrus.xyz',preset:'--prod',env:'prod'}
+};
+const S={net:'testnet',step:1,ns:'slack',acct:'',key:''};
+
+/* ---------- nav ---------- */
+function go(v){
+  document.querySelectorAll('.view').forEach(e=>e.classList.remove('show'));
+  document.getElementById('v-'+v).classList.add('show');
+  document.querySelectorAll('#navlinks button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  window.scrollTo({top:0,behavior:'smooth'});
+  if(v==='memory'&&BRIDGE.connected)loadLive();
+}
+function setNet(n){
+  S.net=n;
+  document.querySelectorAll('#net button').forEach(b=>b.classList.toggle('on',b.dataset.net===n));
+  document.getElementById('net').classList.toggle('main',n==='mainnet');
+  moveGlider();
+  syncAll();
+}
+function moveGlider(){
+  const on=document.querySelector('#net button.on'),g=document.getElementById('glider');
+  g.style.width=on.offsetWidth+'px';g.style.transform=`translateX(${on.offsetLeft-4}px)`;
+}
+
+/* ---------- setup stepper ---------- */
+function setStep(n){
+  S.step=n;
+  for(let i=1;i<=4;i++){
+    document.getElementById('p'+i).classList.toggle('show',i===n);
+    const b=document.querySelector(`#stepNav button[data-s="${i}"]`);
+    b.classList.toggle('on',i===n); b.classList.toggle('done',i<n);
+  }
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+/* ---------- config generators (real, copy-pasteable) ---------- */
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function genManifest(){
+  return `<span class="k">display_information</span>:
+  <span class="k">name</span>: <span class="s">MemZap</span>
+<span class="k">features</span>:
+  <span class="k">bot_user</span>:
+    <span class="k">display_name</span>: <span class="s">memzap</span>
+    <span class="k">always_online</span>: <span class="n">true</span>
+<span class="k">oauth_config</span>:
+  <span class="k">scopes</span>:
+    <span class="k">bot</span>:
+      - <span class="s">app_mentions:read</span>
+      - <span class="s">chat:write</span>
+      - <span class="s">reactions:write</span>
+<span class="k">settings</span>:
+  <span class="k">event_subscriptions</span>:
+    <span class="k">bot_events</span>:
+      - <span class="s">app_mention</span>
+  <span class="k">socket_mode_enabled</span>: <span class="n">true</span>`;
+}
+function genServer(){
+  const n=NET[S.net];
+  return `<span class="k">import</span> { App } <span class="k">from</span> <span class="s">"@slack/bolt"</span>;
+<span class="k">import</span> { MemWal } <span class="k">from</span> <span class="s">"@mysten-incubation/memwal"</span>;
+
+<span class="c">// write path → your owned Walrus memory space</span>
+<span class="k">const</span> memwal = MemWal.<span class="f">create</span>({
+  key: process.env.<span class="n">MEMWAL_KEY</span>,
+  accountId: process.env.<span class="n">MEMWAL_ACCOUNT_ID</span>,
+  serverUrl: <span class="s">"${n.relayer}"</span>, <span class="c">// ${n.label}</span>
+  namespace: <span class="s">"${S.ns}"</span>,
+});
+
+<span class="k">const</span> app = <span class="k">new</span> <span class="f">App</span>({
+  token: process.env.<span class="n">SLACK_BOT_TOKEN</span>,
+  appToken: process.env.<span class="n">SLACK_APP_TOKEN</span>,
+  signingSecret: process.env.<span class="n">SLACK_SIGNING_SECRET</span>,
+  socketMode: <span class="n">true</span>,
+});
+
+app.<span class="f">event</span>(<span class="s">"app_mention"</span>, <span class="k">async</span> ({ event, client }) => {
+  <span class="k">const</span> text = event.text.<span class="f">replace</span>(/&lt;@[^&gt;]+&gt;\\s*/, <span class="s">""</span>)
+                         .<span class="f">replace</span>(/^remember\\s*/i, <span class="s">""</span>);
+  <span class="k">const</span> { permalink } = <span class="k">await</span> client.chat.<span class="f">getPermalink</span>({
+    channel: event.channel, message_ts: event.ts,
+  });
+
+  <span class="c">// store the message + where it came from</span>
+  <span class="k">const</span> job = <span class="k">await</span> memwal.<span class="f">remember</span>(<span class="f">JSON</span>.stringify({
+    text, source: <span class="s">"slack"</span>,
+    channel: event.channel, user: event.user,
+    ts: event.ts, url: permalink,
+  }));
+  <span class="k">await</span> memwal.<span class="f">waitForRememberJob</span>(job.job_id);
+
+  <span class="k">await</span> client.reactions.<span class="f">add</span>({
+    channel: event.channel, timestamp: event.ts, name: <span class="s">"white_check_mark"</span>,
+  });
+});
+
+<span class="k">await</span> app.<span class="f">start</span>();
+<span class="f">console</span>.log(<span class="s">"MemZap bridge live on ${n.label} →"</span>, <span class="s">"${S.ns}"</span>);`;
+}
+function genEnv(){
+  const n=NET[S.net];
+  return `<span class="c"># Walrus Memory (${n.label})</span>
+<span class="n">MEMWAL_ACCOUNT_ID</span>=<span class="s">${S.acct||'0x… your account id'}</span>
+<span class="n">MEMWAL_KEY</span>=<span class="s">${S.key?S.key.slice(0,8)+'…(hidden)':'your delegate key'}</span>
+
+<span class="c"># Slack (from api.slack.com/apps)</span>
+<span class="n">SLACK_BOT_TOKEN</span>=<span class="s">xoxb-…</span>
+<span class="n">SLACK_APP_TOKEN</span>=<span class="s">xapp-…</span>
+<span class="n">SLACK_SIGNING_SECRET</span>=<span class="s">…</span>`;
+}
+function genClaude(){
+  const n=NET[S.net];
+  return `{
+  <span class="k">"mcpServers"</span>: {
+    <span class="k">"memzap"</span>: {
+      <span class="k">"command"</span>: <span class="s">"npx"</span>,
+      <span class="k">"args"</span>: [
+        <span class="s">"-y"</span>, <span class="s">"@mysten-incubation/memwal-mcp"</span>,
+        <span class="s">"${n.preset}"</span>, <span class="s">"--namespace"</span>, <span class="s">"${S.ns}"</span>
+      ]
+    }
+  }
+}`;
+}
+
+/* plain-text versions for clipboard */
+function plain(which){
+  const n=NET[S.net];
+  if(which==='manifest')return `display_information:\n  name: MemZap\nfeatures:\n  bot_user:\n    display_name: memzap\n    always_online: true\noauth_config:\n  scopes:\n    bot:\n      - app_mentions:read\n      - chat:write\n      - reactions:write\nsettings:\n  event_subscriptions:\n    bot_events:\n      - app_mention\n  socket_mode_enabled: true`;
+  if(which==='server')return document.getElementById('serverCode').innerText;
+  if(which==='env')return document.getElementById('envCode').innerText;
+  if(which==='claude'||which==='claude2')return `{\n  "mcpServers": {\n    "memzap": {\n      "command": "npx",\n      "args": [\n        "-y", "@mysten-incubation/memwal-mcp",\n        "${n.preset}", "--namespace", "${S.ns}"\n      ]\n    }\n  }\n}`;
+  return '';
+}
+
+function syncAll(){
+  S.ns=(document.getElementById('nsInput').value||'slack').trim().replace(/\s+/g,'-');
+  S.acct=document.getElementById('acctInput').value.trim();
+  S.key=document.getElementById('keyInput').value.trim();
+  const n=NET[S.net];
+  document.getElementById('manifestCode').innerHTML=genManifest();
+  document.getElementById('serverCode').innerHTML=genServer();
+  document.getElementById('envCode').innerHTML=genEnv();
+  document.getElementById('claudeCode').innerHTML=genClaude();
+  document.getElementById('claudeCode2').innerHTML=genClaude();
+  document.getElementById('genLink').href=n.endpoint;
+  document.getElementById('setupNet').textContent=n.label;
+  document.getElementById('hsNet').textContent=n.label;
+  document.getElementById('mNet').textContent=n.short;
+  document.getElementById('nsEcho').textContent=S.ns;
+  document.getElementById('nsEcho2').textContent=S.ns;
+  document.querySelectorAll('.netEcho').forEach(e=>e.textContent=n.env);
+}
+
+/* ---------- copy ---------- */
+document.addEventListener('click',e=>{
+  const b=e.target.closest('.copy'); if(!b)return;
+  navigator.clipboard.writeText(plain(b.dataset.c)).then(()=>{
+    const t=b.textContent;b.textContent='Copied ✓';b.classList.add('ok');
+    setTimeout(()=>{b.textContent=t;b.classList.remove('ok')},1400);
+  });
+});
+
+/* ---------- memory dashboard (live bridge + demo fallback) ---------- */
+const BRIDGE={url:'http://localhost:8787',connected:false};
+const DEMO=[
+  {text:"The $1MB token TGE is targeting August 2026, 1B fixed supply.",ch:"strategy",user:"nandit",ago:"2h",bid:"0x9f3a…c21e",url:""},
+  {text:"Walrus is the hot-tier complement to Filecoin — position it as the durable substrate, not a memory product.",ch:"lighthouse",user:"nandit",ago:"5h",bid:"0x71b8…0d4a",url:""},
+  {text:"NFT.Storage side-letter asks: liability cap, drop insurance requirement, remove competitor clause.",ch:"contracts",user:"ravish",ago:"1d",bid:"0x4c2d…88f1",url:""},
+  {text:"Akave's edge is S3 compatibility and enterprise integrations — that's our gap to close.",ch:"competitive",user:"arpit",ago:"1d",bid:"0xa017…3b9c",url:""},
+  {text:"ProPGF Batch 3 grant framing: compliance-grade verifiable backup, SOC 2 in progress.",ch:"grants",user:"nandit",ago:"2d",bid:"0x2e6f…71aa",url:""},
+  {text:"UK trip locked August 8–15; optimize Amex Platinum points for the flights.",ch:"personal",user:"nandit",ago:"3d",bid:"0xbb40…19e7",url:""},
+];
+let MEM=DEMO.slice();
+
+async function connectBridge(){
+  BRIDGE.url=(document.getElementById('bridgeUrl').value||'http://localhost:8787').trim().replace(/\/+$/,'');
+  setBridge('connecting');
+  try{
+    const r=await fetch(BRIDGE.url+'/health',{cache:'no-store'});
+    if(!r.ok)throw 0;
+    const h=await r.json();
+    BRIDGE.connected=true; setBridge('live',h);
+    await loadLive();
+  }catch(e){
+    BRIDGE.connected=false; setBridge('demo');
+    MEM=DEMO.slice(); render();
+  }
+}
+function setBridge(state,h){
+  const dot=document.getElementById('bbDot'),s=document.getElementById('bbStatus'),src=document.getElementById('mSrc'),add=document.getElementById('addInput');
+  dot.className='bb-dot '+state;
+  if(state==='live'){
+    s.innerHTML=`Live — reading your memory · <b>${(h&&h.namespace)||'slack'}</b> @ ${((h&&h.relayer)||'').replace('https://','')}`;
+    if(src)src.textContent='LIVE';
+    if(add)add.placeholder='Write a memory straight to Walrus — type and press enter';
+  }else if(state==='connecting'){
+    s.textContent='Connecting to your bridge…';
+  }else{
+    s.innerHTML='Bridge offline — showing demo data. Start <code>server.mjs</code>, then Reconnect.';
+    if(src)src.textContent='DEMO';
+    if(add)add.placeholder='Simulate a memory (demo) — type and press enter';
+  }
+}
+async function loadLive(q){
+  if(!BRIDGE.connected)return;
+  try{
+    const url=BRIDGE.url+(q?('/recall?q='+encodeURIComponent(q)):'/memories');
+    const r=await fetch(url,{cache:'no-store'}); const j=await r.json();
+    MEM=(j.results||[]).map(parseMem).filter(Boolean);
+    render(q,{allHit:!!q});
+  }catch(e){ BRIDGE.connected=false; setBridge('demo'); MEM=DEMO.slice(); render(); }
+}
+function parseMem(item){
+  if(item==null)return null;
+  let raw=item.text??item.content??item.memory??item.value??item.data??(typeof item==='string'?item:'');
+  let o={};
+  try{ o=JSON.parse(raw); }catch{ o={text:raw}; }
+  if(typeof o!=='object'||o===null)o={text:String(o)};
+  const bid=item.blob_id||item.blobId||item.id||item.memory_id||o.bid||'';
+  return {
+    text:o.text||String(raw||'(empty)'),
+    ch:o.channel||o.source||'memory',
+    user:o.user||'',
+    url:o.url||'',
+    ago:o.ts?timeAgo(Number(o.ts)*1000):'',
+    bid:bid?shortId(bid):''
+  };
+}
+function shortId(s){s=String(s);return s.length>14?s.slice(0,6)+'…'+s.slice(-4):s;}
+function timeAgo(ms){if(!ms||isNaN(ms))return'';const d=(Date.now()-ms)/1000;if(d<60)return'just now';if(d<3600)return Math.floor(d/60)+'m';if(d<86400)return Math.floor(d/3600)+'h';return Math.floor(d/86400)+'d';}
+function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function render(filter,opts){
+  opts=opts||{};
+  const f=document.getElementById('feed');f.innerHTML='';
+  if(!MEM.length){
+    f.innerHTML='<div class="mem" style="text-align:center;color:var(--text-faint)">No memories yet. Tag <b style="color:var(--mint)">@memzap remember …</b> in Slack, then Reconnect.</div>';
+  }
+  MEM.forEach((m,i)=>{
+    const hit=opts.allHit||(filter&&matches(m,filter));
+    const el=document.createElement('div');
+    el.className='mem'+(hit?' hit':'');
+    el.style.animationDelay=(i*.04)+'s';
+    const agoTxt=m.ago?(/now/.test(m.ago)?m.ago:m.ago+' ago'):'';
+    const link=m.url?`<a class="slink" href="${m.url}" target="_blank" rel="noopener">view in Slack <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M7 7h10v10"/></svg></a>`:'';
+    el.innerHTML=`
+      <div class="mtxt">${escapeHtml(m.text)}</div>
+      <div class="morigin">
+        <span class="chip"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M6 15a2 2 0 11-2-2h2zm1 0a2 2 0 014 0v5a2 2 0 11-4 0zm2-8a2 2 0 11-2 2V7zm0 1a2 2 0 010 4H4a2 2 0 010-4zm8 1a2 2 0 112-2v2zm-1 0a2 2 0 01-4 0V3a2 2 0 114 0zm-2 8a2 2 0 110-4h2a2 2 0 010 4z"/></svg>Slack</span>
+        <span class="chip ch">#${escapeHtml(m.ch)}</span>
+        ${m.user?`<span class="chip user">@${escapeHtml(m.user)}</span>`:''}
+        <div class="mmeta">
+          <span class="verified"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>${m.bid||'on Walrus'}</span>
+          ${agoTxt?`<span>${agoTxt}</span>`:''}
+          ${link}
+        </div>
+      </div>`;
+    f.appendChild(el);
+  });
+  document.getElementById('mCount').textContent=MEM.length;
+  document.getElementById('hsCount').textContent=MEM.length;
+}
+function matches(m,q){
+  q=q.toLowerCase();
+  const words=q.split(/\s+/).filter(w=>w.length>2);
+  const t=(m.text+' '+m.ch).toLowerCase();
+  return words.some(w=>t.includes(w));
+}
+async function recall(){
+  const q=document.getElementById('recallInput').value.trim();
+  const ans=document.getElementById('recallAns');
+  if(!q){ans.classList.remove('show'); if(BRIDGE.connected){await loadLive();}else{MEM=DEMO.slice();render();} return;}
+  let hits=[];
+  if(BRIDGE.connected){ await loadLive(q); hits=MEM; }
+  else { MEM=DEMO.slice(); render(q); hits=DEMO.filter(m=>matches(m,q)); }
+  if(hits.length){
+    const top=hits[0];
+    document.getElementById('recallText').textContent=top.text;
+    document.getElementById('recallSrc').innerHTML=`Recalled from <b>#${escapeHtml(top.ch||'memory')}</b>${top.user?(' · @'+escapeHtml(top.user)):''}${top.bid?(' · '+top.bid+' on Walrus'):''}`;
+  }else{
+    document.getElementById('recallText').textContent="No memory matches that yet. Write one from Slack and ask again.";
+    document.getElementById('recallSrc').innerHTML='';
+  }
+  ans.classList.add('show'); pulseThread();
+}
+async function addMem(){
+  const v=document.getElementById('addInput').value.trim();if(!v)return;
+  document.getElementById('addInput').value='';
+  setFlow('storing on Walrus: '+v.slice(0,36)+(v.length>36?'…':'')); pulseThread();
+  if(BRIDGE.connected){
+    try{
+      await fetch(BRIDGE.url+'/remember',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:v,user:'you',channel:'dashboard'})});
+      setTimeout(loadLive,500);
+    }catch(e){}
+  }else{
+    const hex=()=>Math.floor(Math.random()*65536).toString(16).padStart(4,'0');
+    MEM.unshift({text:v,ch:"demo",user:"you",ago:"now",bid:`0x${hex()}…${hex()}`,url:""});
+    render();
+  }
+}
+
+/* ---------- thread animation ---------- */
+const FLOWS=["@memzap remember: launch is August 2026","Claude recalls → \"August 2026\"","stored on Walrus · Seal-encrypted","@memzap remember: drop the insurance clause"];
+let fi=0;
+function setFlow(t){document.getElementById('flowlabel').textContent=t;}
+function pulseThread(){
+  const wire=document.getElementById('wire'),pkt=document.getElementById('packet');
+  if(!wire||!pkt)return;
+  const len=wire.getTotalLength();let start=null;const dur=1100;
+  pkt.setAttribute('opacity','1');
+  function step(ts){
+    if(!start)start=ts;const p=Math.min((ts-start)/dur,1);
+    const pt=wire.getPointAtLength(p*len);
+    pkt.setAttribute('cx',pt.x);pkt.setAttribute('cy',pt.y);
+    if(p<1)requestAnimationFrame(step);else pkt.setAttribute('opacity','0');
+  }
+  requestAnimationFrame(step);
+}
+setInterval(()=>{if(!document.getElementById('v-overview').classList.contains('show'))return;fi=(fi+1)%FLOWS.length;setFlow(FLOWS[fi]);pulseThread();},3400);
+
+/* ---------- plankton ---------- */
+(function(){
+  const p=document.getElementById('plankton');
+  for(let i=0;i<26;i++){
+    const s=document.createElement('span');
+    s.style.left=Math.random()*100+'%';
+    s.style.bottom='-10px';
+    const d=8+Math.random()*12;
+    s.style.animationDuration=d+'s';
+    s.style.animationDelay=(-Math.random()*d)+'s';
+    const sc=.5+Math.random()*1.4;s.style.transform=`scale(${sc})`;
+    if(Math.random()>.6)s.style.background='var(--cyan)',s.style.boxShadow='0 0 8px 1px rgba(91,200,232,.6)';
+    p.appendChild(s);
+  }
+})();
+
+/* ---------- init ---------- */
+syncAll();connectBridge();
+setTimeout(moveGlider,60);
+window.addEventListener('resize',moveGlider);
+</script>
+</body>
+</html>
