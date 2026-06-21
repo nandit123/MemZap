@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MemZap — portable memory for Slack and Claude</title>
+<meta name="theme-color" content="#06101c">
+<link rel="icon" type="image/png" href="assets/memzap-logo.png">
+<link rel="apple-touch-icon" href="assets/memzap-logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -41,7 +44,9 @@ header{position:sticky;top:0;z-index:50;backdrop-filter:blur(16px);
   background:linear-gradient(180deg,rgba(6,15,28,.86),rgba(6,15,28,.5));border-bottom:1px solid var(--line)}
 .nav{display:flex;align-items:center;gap:28px;height:66px}
 .brand{display:flex;align-items:center;gap:11px;font-family:var(--fd);font-weight:700;font-size:19px;letter-spacing:-.02em;cursor:pointer}
-.brand .mark{width:30px;height:30px;flex:none}
+.brand .mark{position:relative;width:38px;height:38px;flex:none;overflow:hidden;border-radius:10px;
+  box-shadow:0 0 18px rgba(63,227,189,.12)}
+.brand .mark img{position:absolute;width:79px;height:79px;max-width:none;left:-23px;top:-14px}
 .brand b{color:var(--mint);font-weight:700}
 .nav-links{display:flex;gap:4px;margin-left:8px}
 .nav-links button{font-family:var(--fb);font-size:14px;font-weight:500;color:var(--text-dim);background:none;border:none;
@@ -271,11 +276,7 @@ footer b{color:var(--mint)}
   <div class="wrap">
     <nav class="nav">
       <div class="brand" onclick="go('overview')">
-        <svg class="mark" viewBox="0 0 40 40" fill="none">
-          <circle cx="20" cy="20" r="18" stroke="var(--mint)" stroke-width="1.4" opacity=".35"/>
-          <path d="M20 6 C12 12 12 22 14 30 C16 26 18 27 20 31 C22 27 24 26 26 30 C28 22 28 12 20 6Z" fill="var(--mint)" opacity=".9"/>
-          <circle cx="16" cy="17" r="1.6" fill="#04221b"/><circle cx="24" cy="17" r="1.6" fill="#04221b"/>
-        </svg>
+        <span class="mark" aria-hidden="true"><img src="assets/memzap-logo.png" alt=""></span>
         Mem<b>Zap</b>
       </div>
       <div class="nav-links" id="navlinks">
